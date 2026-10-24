@@ -1,0 +1,20 @@
+{
+  "id": "900001",
+  "name": "#MOCK-1001",
+  "currency": "DOP",
+  "financial_status": "pending",
+  "payment_gateway_names": ["Cash on Delivery (COD)"],
+  "total_price": "1520.50",
+  "total_discounts": "100.00",
+  "total_tax": "220.50",
+  "total_shipping_price_set": {
+    "shop_money": { "amount": "150.00", "currency_code": "DOP" },
+    "presentment_money": { "amount": "150.00", "currency_code": "DOP" }
+  },
+  "line_items": [
+    { "title": "Camiseta", "variant_title": "Azul / M", "quantity": 2 },
+    { "title": "Gorra", "variant_title": "Negra", "quantity": 1 }
+  ],
+  "_mock_buyer": { "consent": true, "evidence": "fixture-opt-in-v1", "phone": "+12025550101" },
+  "_mock_delivery": "success"
+}

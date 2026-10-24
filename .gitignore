@@ -1,0 +1,26 @@
+# Local configuration and secrets (including example variants)
+.env*
+
+# Local databases and SQLite sidecars
+*.sqlite*
+*.db
+*.db-*
+*.database*
+*-journal
+*-wal
+*-shm
+
+# Disposable test/demo sessions
+.test-session-*/
+.demo-session-*/
+
+# Local verification output; never publish runtime evidence
+*evidence*.json
+*wrapper*stderr*
+*.log
+
+# Dependencies and caches
+node_modules/
+.cache/
+.npm/
+coverage/
