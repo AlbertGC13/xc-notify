@@ -5,7 +5,11 @@ import { join, resolve } from 'node:path';
 const help = 'Local mock only: node src/cli.mjs serve|demo|--help\n' +
   'Required: MOCK_SIGNING_SECRET=demo-only-<16+ characters>, SHOP_DOMAIN=<shop>.myshopify.com\n' +
   'Optional: DATABASE_PATH=./mock.sqlite, HOST=127.0.0.1, PORT=3000, TRANSPORT=mock\n' +
-  'Mock controls: MOCK_DISPATCH=active|paused, MOCK_RETRY_MS=100 (10..60000)\n';
+  'Mock controls: MOCK_DISPATCH=active|paused, MOCK_RETRY_MS=100 (10..60000)\n' +
+  'Local Meta prototype: node src/cli.mjs receive-meta\n' +
+  'Required: META_VERIFY_TOKEN, META_APP_SECRET=demo-only-<16..120 ASCII letters/digits/_/->\n' +
+  'Optional: META_HOST=127.0.0.1 (or ::1), META_PORT=3001 (0..65535)\n' +
+  'ACK-only synthetic prototype: NEVER REGISTER FOR REAL EVENTS; no durability, dedup or sends.\n';
 function configuration(env) {
   const config = {
     secret: env.MOCK_SIGNING_SECRET, shop: env.SHOP_DOMAIN,
@@ -55,13 +59,15 @@ async function demo(config, start) {
 }
 const command = process.argv[2];
 try {
-  if (process.argv.length !== 3 || !['serve', 'demo', '--help'].includes(command)) {
+  if (process.argv.length !== 3 || !['serve', 'demo', '--help', 'receive-meta'].includes(command)) {
     throw new Error('Unknown command. Run --help.');
   }
   if (command === '--help') process.stdout.write(help);
   else {
-    const config = configuration(process.env);
-    const { start } = await import('./server.mjs');
+    // Dispatch Meta before mock configuration or any SQLite/server import.
+    const meta = command === 'receive-meta' ? await import('./meta-receiver.mjs') : null;
+    const config = meta ? meta.configuration(process.env) : configuration(process.env);
+    const { start } = meta ?? await import('./server.mjs');
     if (command === 'demo') await demo(config, start);
     else {
       const app = await start(config);
@@ -81,6 +87,8 @@ try {
   }
 } catch (error) {
   const known = ['Configuration error. Run --help.', 'Unknown command. Run --help.'];
-  process.stderr.write(`${known.includes(error.message) ? error.message : 'Local mock failed; check database access and port availability.'}\n`);
+  const failure = command === 'receive-meta' ? 'Local Meta receiver failed.' :
+    'Local mock failed; check database access and port availability.';
+  process.stderr.write(`${known.includes(error.message) ? error.message : failure}\n`);
   process.exitCode = 1;
 }

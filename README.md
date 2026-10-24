@@ -57,6 +57,42 @@ local failure message, without echoing secrets, payloads or filesystem details.
 `demo` still requires valid config but always uses an ephemeral port/DB and active dispatch.
 There are no access tokens, account setup, deployment, tunnels, systemd or installation scripts.
 
+## Local Meta protocol prototype — ACK only
+
+**NEVER REGISTER FOR REAL EVENTS.** This synthetic, loopback-only prototype is not durable,
+performs no deduplication, sends nothing and is not production-ready. Valid notifications are
+ACKed and discarded; retries may receive another 200. Do not connect accounts or expose it.
+It does not import SQLite, use the mock database, normalize orders or process business fields.
+
+```sh
+# Public fake fixtures only; no Shopify variables or environment file required.
+META_VERIFY_TOKEN=demo-only-verification-fixture-1234 \
+META_APP_SECRET=demo-only-application-fixture-5678 \
+node src/cli.mjs receive-meta
+```
+
+Both required Meta values must be `demo-only-` plus 16–120 ASCII letters/digits/`_`/`-`.
+`META_HOST` defaults to `127.0.0.1`, accepting only that literal or `::1`;
+`META_PORT` defaults to `3001`, accepting integers 0–65535 (0 allocates a port).
+These variables are independent of all mock configuration. Startup emits only
+`{"listening":<port>}` plus newline; stdin `stop`, Ctrl+C or SIGTERM stops the receiver.
+Configuration errors retain the generic CLI message; bind failures say `Local Meta receiver failed.`
+
+Only `GET` and `POST /webhooks/meta` exist. GET requires exactly one each of
+`hub.mode=subscribe`, `hub.verify_token` and a nonempty decoded `hub.challenge` (at most
+1024 UTF-8 bytes). A matching token returns 200 plain text with the exact challenge,
+including leading zeros, without a newline; invalid verification returns 403.
+POST requires exactly one `X-Hub-Signature-256: sha256=<64 hex digits>` authenticating the
+**original bytes** using the fake app secret, not the verification token or Shopify base64.
+Valid signed UTF-8 JSON returns 200 with an empty body. Missing/invalid signatures return
+401, invalid UTF-8/JSON 400, unsupported content type/charset/compression 415, oversized
+bodies 413, and unknown routes/methods 404. No payload/token/path is logged.
+
+The raw body limit is 3 MiB, headers 8 KiB. Each connection has a real absolute five-second
+lifetime, including idle time, headers and body; trickled activity cannot renew it. Responses
+close the connection. Interrupted/expired uploads are discarded without a successful ACK.
+This intentionally restrictive local deadline is not a production ingress design.
+
 ## Public mock interfaces
 
 All routes exist **only in this mock-only, loopback-bound process**. Do not proxy or expose them.

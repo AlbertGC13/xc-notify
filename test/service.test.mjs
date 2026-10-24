@@ -16,7 +16,7 @@ const expected = 'Pedido recibido #MOCK-1001\n' +
 
 async function sandbox(t) {
   // All disposable data stays beneath this service, never a shared OS temp root.
-  const dir = await mkdtemp(join(root, '.test-session-'));
+  const dir = await mkdtemp(join(root, 'test/.test-session-meta-service-'));
   const children = [];
   let sequence = 0;
   t.after(async () => {
@@ -240,7 +240,7 @@ test('dispatch: bounded durable retries, permanent failure and ambiguous accepta
 });
 
 test('CLI: required fake secret, mock-only, loopback-only, help and invalid configuration', async t => {
-  const dir = await mkdtemp(join(root, '.test-session-cli-'));
+  const dir = await mkdtemp(join(root, 'test/.test-session-meta-cli-'));
   t.after(() => rm(dir, { recursive: true, force: true }));
   async function run(args, extra = {}) {
     const child = spawn(process.execPath, ['src/cli.mjs', ...args], { cwd: root, timeout: 2000,
@@ -254,7 +254,9 @@ test('CLI: required fake secret, mock-only, loopback-only, help and invalid conf
   }
   for (const extra of [ { MOCK_SIGNING_SECRET: '' }, { MOCK_SIGNING_SECRET: 'real-secret' },
     { TRANSPORT: 'live' }, { HOST: '0.0.0.0' }, { HOST: 'localhost' }, { PORT: '-1' },
-    { SHOP_DOMAIN: 'bad' }, { MOCK_RETRY_MS: '0' }, { MOCK_DISPATCH: 'anything' } ]) {
+    { SHOP_DOMAIN: 'bad' }, { MOCK_RETRY_MS: '0' }, { MOCK_DISPATCH: 'anything' },
+    { MOCK_SIGNING_SECRET: '', META_VERIFY_TOKEN: 'demo-only-verification-fixture-1234',
+      META_APP_SECRET: 'demo-only-application-fixture-5678' } ]) {
     assert.deepEqual(await run(['serve'], extra), {
       code: 1, signal: null, stdout: '', stderr: 'Configuration error. Run --help.\n'
     });
@@ -265,5 +267,9 @@ test('CLI: required fake secret, mock-only, loopback-only, help and invalid conf
   assert.equal(help.stdout, 'Local mock only: node src/cli.mjs serve|demo|--help\n' +
     'Required: MOCK_SIGNING_SECRET=demo-only-<16+ characters>, SHOP_DOMAIN=<shop>.myshopify.com\n' +
     'Optional: DATABASE_PATH=./mock.sqlite, HOST=127.0.0.1, PORT=3000, TRANSPORT=mock\n' +
-    'Mock controls: MOCK_DISPATCH=active|paused, MOCK_RETRY_MS=100 (10..60000)\n');
+    'Mock controls: MOCK_DISPATCH=active|paused, MOCK_RETRY_MS=100 (10..60000)\n' +
+    'Local Meta prototype: node src/cli.mjs receive-meta\n' +
+    'Required: META_VERIFY_TOKEN, META_APP_SECRET=demo-only-<16..120 ASCII letters/digits/_/->\n' +
+    'Optional: META_HOST=127.0.0.1 (or ::1), META_PORT=3001 (0..65535)\n' +
+    'ACK-only synthetic prototype: NEVER REGISTER FOR REAL EVENTS; no durability, dedup or sends.\n');
 });
