@@ -1,5 +1,7 @@
 import { createServer } from 'node:http';
 import { createHash, createHmac, timingSafeEqual } from 'node:crypto';
+import { resolve, dirname, basename } from 'node:path';
+import { realpathSync, existsSync, statSync } from 'node:fs';
 
 const limit = 3 * 1024 * 1024;
 const digest = value => createHash('sha256').update(value).digest();
@@ -11,19 +13,50 @@ export function configuration(env) {
       !['127.0.0.1', '::1'].includes(host) || !/^\d{1,5}$/.test(port) || Number(port) > 65535) {
     throw new Error('Configuration error. Run --help.');
   }
-  return { token, secret, host, port: Number(port) };
+  let database;
+  try {
+    if (env.META_DATABASE_PATH === '') throw new Error();
+    database = resolve(env.META_DATABASE_PATH ?? './meta-inbox.sqlite');
+    const canonical = (path, optional = false) => {
+      if (existsSync(path)) return realpathSync(path);
+      try { return resolve(realpathSync(dirname(path)), basename(path)); }
+      catch (error) {
+        // An unrelated application's missing directory is not a Meta dependency.
+        // Keep our own parent strict, and do not ignore access or other failures.
+        if (optional && error.code === 'ENOENT') return path;
+        throw error;
+      }
+    };
+    for (const mock of [resolve('./mock.sqlite'), resolve(env.DATABASE_PATH || './mock.sqlite')]) {
+      if (canonical(database).toLowerCase() === canonical(mock, true).toLowerCase() ||
+          (existsSync(database) && existsSync(mock) && statSync(database).ino === statSync(mock).ino &&
+           statSync(database).dev === statSync(mock).dev)) throw new Error();
+    }
+  } catch { throw new Error('Configuration error. Run --help.'); }
+  return { token, secret, host, port: Number(port), database };
 }
 
 export async function start(config) {
-  // No database, business normalization, storage, deduplication or delivery path.
+  // SQLite is loaded only for Meta startup, after CLI configuration validates.
+  const { openInbox } = await import('./meta-inbox.mjs');
+  const inbox = openInbox(config.database);
   const server = createServer({ maxHeaderSize: 8192 }, (req, res) => {
-    const reply = (status, text = '') => {
+    const reply = (status, text = '', type = 'text/plain; charset=utf-8') => {
       if (res.destroyed || res.writableEnded || req.aborted) return;
-      res.writeHead(status, { 'content-type': 'text/plain; charset=utf-8', connection: 'close' });
+      res.writeHead(status, { 'content-type': type, connection: 'close' });
       res.end(text);
     };
     let url;
     try { url = new URL(req.url, 'http://localhost'); } catch { reply(404); return; }
+    if (req.method === 'GET' && (url.pathname === '/mock/meta-inbox' ||
+        /^\/mock\/meta-inbox\/[a-f0-9]{64}$/.test(url.pathname))) {
+      try {
+        const value = url.pathname === '/mock/meta-inbox' ? inbox.count() : inbox.receipt(url.pathname.split('/').at(-1));
+        if (value) reply(200, JSON.stringify(value), 'application/json; charset=utf-8');
+        else reply(404);
+      } catch { reply(503); }
+      return;
+    }
     if (url.pathname !== '/webhooks/meta' || !['GET', 'POST'].includes(req.method)) {
       reply(404); return;
     }
@@ -71,7 +104,8 @@ export async function start(config) {
       }
       try { JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(body)); }
       catch { reply(400); return; }
-      // ACK-only synthetic notifications are deliberately discarded, including retries.
+      try { inbox.record(body); }
+      catch { reply(503); return; } // Never claim success on a storage/commit failure.
       reply(200);
     });
   });
@@ -88,12 +122,17 @@ export async function start(config) {
     if (socket.writable) socket.end(`HTTP/1.1 ${error.code === 'HPE_HEADER_OVERFLOW' ? '431 Request Header Fields Too Large' : '400 Bad Request'}\r\nConnection: close\r\nContent-Length: 0\r\n\r\n`);
     else socket.destroy();
   });
-  await new Promise((accept, reject) => {
-    server.once('error', reject);
-    server.listen(config.port, config.host, () => { server.removeListener('error', reject); accept(); });
-  });
+  try {
+    await new Promise((accept, reject) => {
+      server.once('error', reject);
+      server.listen(config.port, config.host, () => { server.removeListener('error', reject); accept(); });
+    });
+  } catch (error) { server.close(); inbox.close(); throw error; }
   return { port: server.address().port, close: () => new Promise((accept, reject) => {
-    server.close(error => error ? reject(error) : accept());
+    server.close(error => {
+      try { inbox.close(); } catch (failure) { reject(failure); return; }
+      error ? reject(error) : accept();
+    });
     for (const socket of sockets) socket.destroy();
   }) };
 }

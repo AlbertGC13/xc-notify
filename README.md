@@ -57,12 +57,13 @@ local failure message, without echoing secrets, payloads or filesystem details.
 `demo` still requires valid config but always uses an ephemeral port/DB and active dispatch.
 There are no access tokens, account setup, deployment, tunnels, systemd or installation scripts.
 
-## Local Meta protocol prototype — ACK only
+## Local Meta synthetic persistent raw inbox
 
-**NEVER REGISTER FOR REAL EVENTS.** This synthetic, loopback-only prototype is not durable,
-performs no deduplication, sends nothing and is not production-ready. Valid notifications are
-ACKed and discarded; retries may receive another 200. Do not connect accounts or expose it.
-It does not import SQLite, use the mock database, normalize orders or process business fields.
+**NEVER REGISTER FOR REAL EVENTS.** Fake-only, loopback-only and **not production-ready**.
+Authenticated synthetic raw notifications are committed locally before ACK. Exact-body delivery
+retries deduplicate by SHA256; different raw bytes (even equivalent JSON) remain separate receipts.
+This is NOT business/message deduplication. **NOTHING is processed or sent.** No order normalization,
+worker, retry processing or connection to accounts exists. Do not expose this receiver.
 
 ```sh
 # Public fake fixtures only; no Shopify variables or environment file required.
@@ -74,11 +75,26 @@ node src/cli.mjs receive-meta
 Both required Meta values must be `demo-only-` plus 16–120 ASCII letters/digits/`_`/`-`.
 `META_HOST` defaults to `127.0.0.1`, accepting only that literal or `::1`;
 `META_PORT` defaults to `3001`, accepting integers 0–65535 (0 allocates a port).
-These variables are independent of all mock configuration. Startup emits only
-`{"listening":<port>}` plus newline; stdin `stop`, Ctrl+C or SIGTERM stops the receiver.
-Configuration errors retain the generic CLI message; bind failures say `Local Meta receiver failed.`
+`META_DATABASE_PATH` defaults to `./meta-inbox.sqlite`, relative to the working directory;
+use a dedicated local file in an existing parent directory. Only `receive-meta` uses this variable.
+Configured and default mock database paths are rejected, including aliases; the order store is
+never imported or changed. New files are exclusively created with a fixed SQLite ownership/version
+marker and transactional schema initialization. Existing files must pass a read-only header check
+before any SQLite open, then read-only exact schema validation. Foreign, unmarked, incompatible
+or incomplete initialization files fail closed: no migration, repair, overwrite or deletion.
 
-Only `GET` and `POST /webhooks/meta` exist. GET requires exactly one each of
+The Meta-only database stores original raw body BLOBs and a unique SHA256 under FULL synchronous
+transactions. Commit completes before HTTP 200; exact duplicates return the same empty 200 without
+another receipt. Storage failures return empty generic 503, never a success ACK. Retain the same
+owned database across clean restart or crash to preserve receipts and deduplication. Stop before
+copying the database for a backup. No retention, pruning, quotas or deletion are supplied: data grows
+without bound, and disk/filesystem durability remain risks. This database is only for fake data.
+
+Startup emits `{"listening":<port>}` plus newline (Node may also emit its experimental SQLite
+warning on stderr); stdin `stop`, Ctrl+C or SIGTERM closes the listener and database.
+Configuration errors retain the generic CLI message; storage/bind failures say `Local Meta receiver failed.`
+
+`GET` and `POST /webhooks/meta` retain their protocol. GET requires exactly one each of
 `hub.mode=subscribe`, `hub.verify_token` and a nonempty decoded `hub.challenge` (at most
 1024 UTF-8 bytes). A matching token returns 200 plain text with the exact challenge,
 including leading zeros, without a newline; invalid verification returns 403.
@@ -86,7 +102,15 @@ POST requires exactly one `X-Hub-Signature-256: sha256=<64 hex digits>` authenti
 **original bytes** using the fake app secret, not the verification token or Shopify base64.
 Valid signed UTF-8 JSON returns 200 with an empty body. Missing/invalid signatures return
 401, invalid UTF-8/JSON 400, unsupported content type/charset/compression 415, oversized
-bodies 413, and unknown routes/methods 404. No payload/token/path is logged.
+bodies 413, and unknown routes/methods 404. Rejections and verification never write receipts.
+No payload/token/path is logged.
+
+Read-only, unauthenticated local synthetic diagnostics (never proxy/expose these):
+- `GET /mock/meta-inbox` returns only JSON `{"count":N}`.
+- `GET /mock/meta-inbox/<lowercase-64-hex-sha256>` returns JSON `{"sha256":"…","bytes":N}`,
+  recomputed from the stored BLOB; an unknown digest returns empty 404.
+There is no listing or raw-body/path exposure. `/mock/state` and Shopify routes remain absent
+in Meta mode; the separate mock process and its interfaces are unchanged.
 
 The raw body limit is 3 MiB, headers 8 KiB. Each connection has a real absolute five-second
 lifetime, including idle time, headers and body; trickled activity cannot renew it. Responses

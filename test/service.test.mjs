@@ -270,6 +270,7 @@ test('CLI: required fake secret, mock-only, loopback-only, help and invalid conf
     'Mock controls: MOCK_DISPATCH=active|paused, MOCK_RETRY_MS=100 (10..60000)\n' +
     'Local Meta prototype: node src/cli.mjs receive-meta\n' +
     'Required: META_VERIFY_TOKEN, META_APP_SECRET=demo-only-<16..120 ASCII letters/digits/_/->\n' +
-    'Optional: META_HOST=127.0.0.1 (or ::1), META_PORT=3001 (0..65535)\n' +
-    'ACK-only synthetic prototype: NEVER REGISTER FOR REAL EVENTS; no durability, dedup or sends.\n');
+    'Optional: META_HOST=127.0.0.1 (or ::1), META_PORT=3001 (0..65535), META_DATABASE_PATH=./meta-inbox.sqlite\n' +
+    'Synthetic persistent raw inbox: exact-body delivery dedup only; NOTHING processed or sent.\n' +
+    'Fake-only local prototype: NEVER REGISTER FOR REAL EVENTS; not production-ready.\n');
 });
